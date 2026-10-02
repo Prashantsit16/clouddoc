@@ -10,11 +10,13 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  ECR_REPOSITORY: clouddoc
+  ECR_REPOSITORY_BACKEND: clouddoc
+  ECR_REPOSITORY_FRONTEND: clouddoc-frontend
+  INSTANCE_ID: i-074afd8f3b92f256d
 
 jobs:
   build-and-push:
-    name: Build and Push Docker Image
+    name: Build and Deploy
     runs-on: ubuntu-latest
 
     permissions:
@@ -28,33 +30,134 @@ jobs:
       - name: Configure AWS credentials using OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          role-to-assume: arn:aws:iam::259732630154:role/GitHubActions-CloudDoc-ECR
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Docker image
+      - name: Build and Push Backend Image
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build \
-            -t $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
-            ./backend
+          docker build -t $REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG ./backend
+          docker push $REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG
 
-      - name: Push Docker image to ECR
+      - name: Build and Push Frontend Image
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker push $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker build -t $REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG ./frontend
+          docker push $REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG
 
-      - name: Display image
+      - name: Deploy to EC2 via SSM
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          echo "Image pushed successfully:"
-          echo "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          # Create deployment script commands
+          COMMANDS=$(cat <<EOF
+          cd /opt/clouddoc
+          
+          # Setup environment variables
+          cat << 'ENVFILE' > .env
+          DATABASE_URL=postgresql+psycopg://postgres:prashant@db:5432/clouddoc
+          JWT_SECRET_KEY=Y0uRSup3rS3cr3tK3y123!
+          JWT_ALGORITHM=HS256
+          JWT_EXPIRE_MINUTES=1440
+          AWS_REGION=us-east-1
+          AWS_S3_BUCKET=clouddoc-documents-259732630154
+          AWS_SQS_QUEUE_NAME=clouddoc-document-processing
+          ENVFILE
+
+          # Setup docker-compose.yml
+          cat << 'DCFILE' > docker-compose.yml
+          services:
+            db:
+              image: postgres:15-alpine
+              environment:
+                POSTGRES_USER: postgres
+                POSTGRES_PASSWORD: prashant
+                POSTGRES_DB: clouddoc
+              volumes:
+                - db_data:/var/lib/postgresql/data
+              restart: always
+              
+            backend:
+              image: $REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG
+              command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+              environment:
+                - DATABASE_URL=\${DATABASE_URL}
+                - JWT_SECRET_KEY=\${JWT_SECRET_KEY}
+                - JWT_ALGORITHM=\${JWT_ALGORITHM}
+                - JWT_EXPIRE_MINUTES=\${JWT_EXPIRE_MINUTES}
+                - AWS_REGION=\${AWS_REGION}
+                - AWS_S3_BUCKET=\${AWS_S3_BUCKET}
+                - AWS_SQS_QUEUE_NAME=\${AWS_SQS_QUEUE_NAME}
+              depends_on:
+                - db
+              restart: always
+
+            worker:
+              image: $REGISTRY/$ECR_REPOSITORY_BACKEND:$IMAGE_TAG
+              command: python -m worker.main
+              environment:
+                - DATABASE_URL=\${DATABASE_URL}
+                - AWS_REGION=\${AWS_REGION}
+                - AWS_S3_BUCKET=\${AWS_S3_BUCKET}
+                - AWS_SQS_QUEUE_NAME=\${AWS_SQS_QUEUE_NAME}
+              depends_on:
+                - db
+              restart: always
+
+            frontend:
+              image: $REGISTRY/$ECR_REPOSITORY_FRONTEND:$IMAGE_TAG
+              ports:
+                - "80:80"
+              depends_on:
+                - backend
+              restart: always
+          
+          volumes:
+            db_data:
+          DCFILE
+
+          # Login to ECR
+          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $REGISTRY
+
+          # Pull and run
+          docker-compose pull
+          docker-compose up -d
+          
+          # Run database migrations
+          docker-compose exec -T backend python scratch/alter_db.py || true
+          EOF
+          )
+          
+          # Send SSM command
+          COMMAND_ID=\$(aws ssm send-command \
+            --instance-ids "\${{ env.INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy CloudDoc" \
+            --parameters "commands=[\"\$COMMANDS\"]" \
+            --query "Command.CommandId" \
+            --output text)
+            
+          echo "Sent command \$COMMAND_ID to EC2. Waiting for execution..."
+          
+          # Wait for SSM command to finish
+          aws ssm wait command-executed \
+            --instance-id "\${{ env.INSTANCE_ID }}" \
+            --command-id "\$COMMAND_ID"
+            
+          echo "Deployment command completed."
+          
+          # Fetch output
+          aws ssm get-command-invocation \
+            --instance-id "\${{ env.INSTANCE_ID }}" \
+            --command-id "\$COMMAND_ID" \
+            --query "StandardOutputContent" \
+            --output text

@@ -25,7 +25,7 @@ export async function getDocuments() {
   const response = await fetch(`${API_URL}/documents`, {
     headers: getAuthHeaders()
   });
-  if (!response.ok) throw new Error('Failed to fetch documents');
+  if (!response.ok) throw new Error(`Failed to fetch documents: ${response.status}`);
   return response.json();
 }
 
@@ -33,7 +33,7 @@ export async function getDocument(id: number) {
   const response = await fetch(`${API_URL}/documents/${id}`, {
     headers: getAuthHeaders()
   });
-  if (!response.ok) throw new Error('Failed to fetch document');
+  if (!response.ok) throw new Error(`Failed to fetch document: ${response.status}`);
   return response.json();
 }
 
@@ -43,7 +43,7 @@ export async function requestUploadUrl(filename: string, contentType: string) {
     headers: getAuthHeaders(),
     body: JSON.stringify({ filename, content_type: contentType })
   });
-  if (!response.ok) throw new Error('Failed to get upload URL');
+  if (!response.ok) throw new Error(`Failed to get upload URL: ${response.status}`);
   return response.json();
 }
 
