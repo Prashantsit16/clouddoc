@@ -1,0 +1,56 @@
+[
+  {
+    "workload_label": "Smoke Test (1 document, sequential)",
+    "file": "small_1p.pdf",
+    "file_size_bytes": 1483,
+    "total_attempted": 1,
+    "successful_count": 1,
+    "failed_count": 0,
+    "success_rate_pct": 100.0,
+    "wall_clock_sec": 3.78,
+    "throughput_docs_per_min": 15.89,
+    "upload_initiation_api_stats": {
+      "p50": 633.37,
+      "p95": 633.37,
+      "p99": "N/A (<20 samples)"
+    },
+    "direct_s3_upload_stats": {
+      "p50": 930.81,
+      "p95": 930.81,
+      "p99": "N/A (<20 samples)"
+    },
+    "end_to_end_stats": {
+      "p50": 3774.49,
+      "p95": 3774.49,
+      "p99": "N/A (<20 samples)"
+    },
+    "worker_turnaround_stats": {
+      "p50": 2210.2,
+      "p95": 2210.2,
+      "p99": "N/A (<20 samples)"
+    },
+    "backlog_before": {
+      "available": 0,
+      "in_flight": 0
+    },
+    "backlog_after": {
+      "available": 0,
+      "in_flight": 0
+    },
+    "records": [
+      {
+        "operation_index": 1,
+        "filename": "small_1p.pdf",
+        "file_size_bytes": 1483,
+        "upload_initiation_ms": 633.37,
+        "s3_upload_ms": 930.81,
+        "worker_turnaround_ms": 2210.2,
+        "e2e_processing_ms": 3774.49,
+        "document_id": 4,
+        "status": "COMPLETED",
+        "error_category": null,
+        "poll_attempts": 2
+      }
+    ]
+  }
+]

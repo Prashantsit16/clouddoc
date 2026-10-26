@@ -1,0 +1,2 @@
+workload_label,operation_index,filename,file_size_bytes,status,upload_initiation_ms,s3_upload_ms,worker_turnaround_ms,e2e_processing_ms,poll_attempts,error_category
+"Smoke Test (1 document, sequential)",1,small_1p.pdf,1483,COMPLETED,633.37,930.81,2210.2,3774.49,2,
